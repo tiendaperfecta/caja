@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Caja Tienda Perfecta</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  /* PALETA OSCURA FIJA (elegida por Lucas el 13/8): fondo negro y TODO el texto
+     en blanco puro. Lo único con color son los montos de los movimientos, en
+     verde y rojo. Antes había una paleta clara acá y un bloque
+     @media (prefers-color-scheme: dark) que la cambiaba según el celular; ese
+     bloque se sacó porque ahora la app es oscura siempre.
+     --gris quedó en blanco a propósito: lo usan todas las etiquetas y los
+     datos secundarios, y Lucas los quiere igual de blancos que el resto. */
+  :root {
+    --verde: #16a34a; --verde-bg: #06301a; --verde-tx: #ffffff;
+    --rojo: #dc2626; --rojo-bg: #3b0d0d; --rojo-tx: #ffffff;
+    --azul: #3b82f6; --azul-bg: #10275c; --azul-tx: #ffffff;
+    --gris: #ffffff; --borde: #2e2e2e; --fondo: #000000; --card: #141414; --texto: #ffffff;
+    /* verde y rojo más vivos, solo para los montos: sobre negro necesitan brillo */
+    --verde-monto: #22c55e; --rojo-monto: #ef4444;
+  }
+  * { box-sizing: border-box; margin: 0; -webkit-tap-highlight-color: transparent; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: var(--fondo); color: var(--texto); padding-bottom: 40px; }
+  .wrap { max-width: 480px; margin: 0 auto; padding: 12px; }
+  .card { background: var(--card); border-radius: 14px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  h1 { font-size: 17px; color: var(--gris); font-weight: 500; text-align: center; padding: 10px 0 2px; }
+  /* la tarjeta del saldo queda fija arriba; solo se desplaza lo de abajo */
+  .fijo { position: sticky; top: 0; z-index: 30; background: var(--fondo); margin: 0 -12px; padding: 0 12px; }
+  .fijo .card { box-shadow: 0 2px 10px rgba(0,0,0,.13); }
+  .saldo { text-align: center; position: relative; }
+  #btnRefrescar { position: absolute; top: 8px; right: 8px; border: none; background: none; font-size: 24px; color: var(--gris); padding: 6px; }
+  #btnRefrescar.girando { animation: g 1s linear infinite; }
+  .saldo .fecha { font-size: 15px; color: var(--gris); }
+  /* TAMAÑO DE LOS MONTOS (elegido por Lucas el 13/8 sobre bocetos medidos).
+     Solo se agrandaron los tres montos: el saldo, el que trae la contadora y
+     el que se escribe a mano. Todo el resto quedó como estaba.
+     Los valores están medidos contra el ancho real de cada recuadro en un
+     celular chico (360 px) usando $ 798.456.231 como peor caso. Margen que
+     queda: saldo 47 px, contadora 33 px, manual 46 px.
+     NO subirlos sin volver a medir: a 50 px el saldo queda con 8 px de aire y
+     a 32 px el monto de la contadora ya no entra y se parte en dos renglones. */
+  .saldo .monto { font-size: 44px; font-weight: 700; margin: 2px 0; }
+  .saldo .usd { font-size: 15px; color: var(--gris); }
+  label { display: block; font-size: 14px; color: var(--gris); margin: 12px 0 6px; }
+  .fila { display: flex; gap: 8px; }
+  .btn-tipo { flex: 1; padding: 14px 0; font-size: 18px; font-weight: 600; border-radius: 10px; border: 1.5px solid var(--borde); background: var(--card); color: var(--gris); }
+  .btn-tipo.entrada.on { background: var(--verde-bg); border-color: var(--verde); color: var(--verde-tx); }
+  .btn-tipo.salida.on { background: var(--rojo-bg); border-color: var(--rojo); color: var(--rojo-tx); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { padding: 10px 16px; border-radius: 999px; border: 1.5px solid var(--borde); background: var(--card); font-size: 16px; color: var(--gris); }
+  .chip.on { background: var(--azul-bg); border-color: var(--azul); color: var(--azul-tx); font-weight: 600; }
+  input[type=text], input[type=tel], input[type=password] { width: 100%; padding: 13px; font-size: 18px; border: 1.5px solid var(--borde); border-radius: 10px; background: var(--card); color: var(--texto); }
+  input:focus { outline: none; border-color: var(--azul); }
+  #monto { font-size: 32px; font-weight: 600; }   /* monto escrito a mano */
+  .sug { border: 1.5px solid var(--borde); border-radius: 10px; margin-top: 4px; overflow: hidden; background: var(--card); }
+  .sug div { padding: 13px 14px; font-size: 17px; border-top: 1px solid var(--borde); display: flex; justify-content: space-between; }
+  .sug div:first-child { border-top: none; }
+  .sug small { color: var(--gris); font-size: 15px; }
+  .confirmar { width: 100%; margin-top: 16px; padding: 16px 0; font-size: 19px; font-weight: 700; color: #fff; border: none; border-radius: 12px; background: var(--verde); }
+  .confirmar.salida { background: var(--rojo); }
+  .confirmar:disabled { opacity: .5; }
+  .mov { display: flex; align-items: center; gap: 8px; padding: 11px 0; border-top: 1px solid var(--borde); font-size: 16px; }
+  .mov:first-child { border-top: none; }
+  .mov .que { flex: 1; }
+  .mov .quien { font-size: 14px; color: var(--gris); }
+  .mov .cuanto { font-weight: 600; white-space: nowrap; }
+  .mov .cuanto.e { color: var(--verde-monto); }
+  .mov .cuanto.s { color: var(--rojo-monto); }
+  .mov button { border: none; background: none; color: var(--gris); font-size: 20px; padding: 4px 6px; }
+  .aviso { text-align: center; font-size: 16px; color: var(--gris); padding: 8px 0; }
+  .error { background: var(--rojo-bg); color: var(--rojo-tx); padding: 11px 14px; border-radius: 10px; font-size: 16px; margin-bottom: 10px; display: none; }
+  .glory { background: var(--verde-bg); color: var(--verde-tx); border: 1.5px solid var(--verde); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; font-size: 17px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .glory b { font-size: 26px; }   /* monto que trae la contadora */
+  .glory button { border: none; background: var(--verde); color: #fff; font-size: 16px; font-weight: 600; padding: 10px 16px; border-radius: 8px; white-space: nowrap; }
+  .glory.alerta { background: #fef3c7; color: #78350f; border-color: #f59e0b; }
+  .glory.alerta button { background: #b45309; }
+  .oculto { display: none !important; }
+  .spin { display: inline-block; width: 16px; height: 16px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: g .7s linear infinite; vertical-align: -3px; }
+  @keyframes g { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Caja Tienda Perfecta</h1>
+  <div class="error" id="error"></div>
+
+  <div class="card" id="login">
+    <label>Ingresá tu clave de acceso</label>
+    <input type="password" id="clave" autocomplete="off" placeholder="Clave">
+    <button class="confirmar" id="entrar" style="margin-top:12px">Entrar</button>
+  </div>
+
+  <!-- Pantalla de pausa: aparece solo cuando la app estuvo en segundo plano un
+       rato largo. Con la app a la vista NUNCA se pausa. -->
+  <div class="card oculto" id="pausa" style="text-align:center">
+    <div style="font-size:40px;margin-bottom:8px">😴</div>
+    <label style="font-size:16px">La app estuvo cerrada un rato y se pausó sola.</label>
+    <p style="color:var(--gris);font-size:14px;margin:8px 0 14px">
+      En pausa no le consume nada al servidor.
+    </p>
+    <button class="confirmar" id="btnSeguir">Continuar</button>
+  </div>
+
+  <div id="app" class="oculto">
+    <div class="fijo">
+    <div class="card saldo">
+      <button id="btnRefrescar" title="Actualizar">⟳</button>
+      <div class="fecha" id="fecha"></div>
+      <div style="font-size:15px;color:var(--gris)">Saldo en efectivo</div>
+      <div class="monto" id="saldo">—</div>
+      <div class="usd" id="subsaldo"></div>
+    </div>
+    </div>
+
+    <div class="card" id="formulario">
+      <div class="fila">
+        <button class="btn-tipo entrada" id="btnE">↓ Ingreso</button>
+        <button class="btn-tipo salida" id="btnS">↑ Egreso</button>
+      </div>
+
+      <label>Detalle</label>
+      <input type="text" id="detalle" autocomplete="off" placeholder="Escribí y elegí de la lista">
+      <div class="sug oculto" id="sug"></div>
+
+      <label>Monto</label>
+      <div id="glory" class="glory oculto"></div>
+      <!-- autocomplete off: sin esto el navegador ofrece montos tecleados antes -->
+      <input type="tel" id="monto" inputmode="numeric" placeholder="$ 0" autocomplete="off">
+
+      <!-- La categoría va DEBAJO del monto y arranca siempre en la de todos los
+           días ("Servicios Tercearizados"). Al elegir un detalle conocido, el
+           atajo la cambia solo: casi nunca hay que tocarla. -->
+      <label>Categoría</label>
+      <div class="chips" id="categorias"></div>
+
+      <button class="confirmar" id="confirmar">Confirmar ingreso</button>
+    </div>
+
+    <div class="card">
+      <label style="margin-top:0">Movimientos de hoy</label>
+      <div id="movs" class="aviso">Cargando…</div>
+    </div>
+    <!-- Sirve para saber de un vistazo si un celular quedó con una versión
+         vieja: si dos aparatos muestran versiones distintas, uno no actualizó. -->
+    <div style="text-align:center;color:var(--gris);font-size:12px;margin-top:14px">
+      versión 1 · <span id="medidor">último pedido: —</span>
+    </div>
+  </div>
+</div>
+
+<script>
+var API_URL = 'https://script.google.com/macros/s/AKfycbw1PFYtbGxH-5KG7zfdkRL1yFBGh4GXcdPAkCc9-JIdfWZebY3ICni4rOazSZEBPp1Kkw/exec';
+
+/* Las categorías de la planilla (hoja Listas). El servidor las manda en cada
+   estado; esta lista es solo el respaldo para la primera pantalla.
+   OJO: "Servicios Tercearizados " va con el typo Y el espacio final, tal cual
+   está en la planilla: si no coincide exacto, la celda queda marcada como
+   valor inválido. */
+var CATEGORIAS = ['Servicios Tercearizados ', 'Ventas', 'Servicios', 'Comida', 'Proveedores',
+  'Sueldos', 'Viaticos', 'Alquiler', 'Logística', 'Otros Egresos', 'Otros Ingresos', 'PREM/EXTRAS'];
+var CATEG_DEF = 'Servicios Tercearizados ';
+
+var estado = { tipo: 'E', categoria: CATEG_DEF, atajos: [], enviando: false, soloLectura: false };
+
+function $(id) { return document.getElementById(id); }
+/* evita que un detalle con caracteres raros rompa (o altere) la pantalla */
+function esc(t) {
+  return String(t == null ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function fmt(n) { return new Intl.NumberFormat('es-AR').format(Math.round(n)); }
+function fmtMon(n) { return '$ ' + fmt(n); }
+
+function mostrarError(msg) {
+  var e = $('error');
+  e.textContent = msg;
+  e.style.display = 'block';
+  setTimeout(function () { e.style.display = 'none'; }, 6000);
+}
+
+/* Cronómetro de cada pedido. Se muestra al pie de la app para poder saber
+   cuánto tarda EN EL CELULAR, que puede ser muy distinto de lo que tarda desde
+   una PC en la misma oficina. */
+function marcarTiempo(ms, fallo) {
+  var e = $('medidor');
+  if (!e) return;
+  e.textContent = fallo ? ('último pedido: falló a los ' + Math.round(ms / 1000) + ' s')
+                        : ('último pedido: ' + (ms / 1000).toFixed(1) + ' s');
+  e.style.color = (fallo || ms > 8000) ? 'var(--rojo)' : 'var(--gris)';
+}
+
+function api(cuerpo) {
+  var t0 = Date.now();
+  cuerpo.clave = localStorage.getItem('clave') || $('clave').value.trim();
+  // CORTE POR TIEMPO. Dos plazos distintos a propósito:
+  //  - Guardar plata (agregar / anular): 60 s. Es lo único que escribe, y ahí
+  //    lo que se quiere es que TERMINE aunque tarde. Cortar a los 25 s dejaba
+  //    al usuario sin saber si se había guardado, cuando casi siempre sí.
+  //    Reintentar es seguro: el idCliente evita que se cargue dos veces.
+  //  - Consultas (estado / conteoRapido): 25 s. Son las que se repiten solas,
+  //    así que tienen que fallar rápido para no apilarse cuando Google va mal.
+  var escribe = (cuerpo.accion === 'agregar' || cuerpo.accion === 'anular');
+  var plazo = escribe ? 60000 : 25000;
+  var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  var corte = ctrl ? setTimeout(function () { ctrl.abort(); }, plazo) : null;
+  var opciones = { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(cuerpo) };
+  if (ctrl) opciones.signal = ctrl.signal;
+  return fetch(API_URL, opciones)
+    .then(function (r) {
+      if (corte) clearTimeout(corte);
+      return r.text().then(function (txt) {
+        try { return JSON.parse(txt); }
+        catch (e) { throw new Error('El servidor no respondió bien. Reintentá en un momento.'); }
+      });
+    })
+    .then(function (d) {
+      if (d.error) throw new Error(d.error);
+      marcarTiempo(Date.now() - t0, false);
+      return d;
+    })
+    .catch(function (e) {
+      if (corte) clearTimeout(corte);
+      marcarTiempo(Date.now() - t0, true);
+      if (e.name === 'AbortError') throw new Error('El servidor tardó demasiado. Verificá si el movimiento se guardó antes de reintentar.');
+      throw e;
+    });
+}
+/* identificador único por confirmación (evita cargar dos veces si hay que reintentar) */
+function nuevoId() {
+  return 'C' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+/* ---- login ---- */
+$('entrar').onclick = function () {
+  var c = $('clave').value.trim();
+  if (!c) return;
+  $('entrar').innerHTML = '<span class="spin"></span>';
+  api({ accion: 'estado' }).then(function (d) {
+    localStorage.setItem('clave', c);
+    iniciar(d);
+  }).catch(function (e) {
+    $('entrar').textContent = 'Entrar';
+    mostrarError(e.message);
+  });
+};
+
+function iniciar(d) {
+  $('login').classList.add('oculto');
+  $('app').classList.remove('oculto');
+  pintarEstado(d);
+}
+
+/* ---- UI principal ---- */
+function pintarEstado(d, esCache) {
+  ultimaAct = Date.now();
+  estado.atajos = d.atajos || [];
+  if (d.categorias && d.categorias.length) { CATEGORIAS = d.categorias; pintarChipsCategoria(); }
+
+  /* SOLO LECTURA: quién puede cargar y quién solo mira lo decide el SERVIDOR
+     (viene en d.soloLectura). Acá únicamente se esconde lo que no sirve.
+     El freno de verdad está en el backend: aunque alguien mostrara los botones
+     a mano, el servidor rechaza cargar y anular igual. */
+  estado.soloLectura = !!d.soloLectura;
+  $('formulario').classList.toggle('oculto', estado.soloLectura);
+  // guardamos lo pintado para poder mostrarlo AL INSTANTE la próxima vez que
+  // se abra la app, mientras llega lo fresco del servidor
+  if (!esCache) {
+    try {
+      var copia = {}; for (var k in d) { if (k !== 'conteo') copia[k] = d[k]; }
+      localStorage.setItem('cacheEstado', JSON.stringify(copia));
+    } catch (e) {}
+  }
+  mostrarConteoGlory(d.conteo);
+  var hoy = new Date();
+  var dias = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+  var meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  // el día lo manda el servidor (la planilla), no el reloj del celular
+  var diaMostrar = d.dia || hoy.getDate();
+  var aviso = (d.dia && d.dia !== hoy.getDate()) ? ' ⚠️' : '';
+  $('fecha').textContent = dias[hoy.getDay()] + ' ' + diaMostrar + ' de ' + meses[hoy.getMonth()] + aviso + ' · ' + d.usuario;
+  $('saldo').textContent = '$ ' + fmt(d.saldo);
+  $('subsaldo').textContent = (d.entradasHoy || d.salidasHoy)
+    ? ('hoy: + ' + fmt(d.entradasHoy || 0) + '   − ' + fmt(d.salidasHoy || 0)) : '';
+  var m = $('movs');
+  if (!d.movimientos || !d.movimientos.length) { m.className = 'aviso'; m.textContent = 'Todavía no hay movimientos hoy.'; return; }
+  m.className = ''; m.innerHTML = '';
+  d.movimientos.forEach(function (mv) {
+    var div = document.createElement('div');
+    div.className = 'mov';
+    var signo = mv.tipo === 'E' ? '+' : '−';
+    div.innerHTML = '<div class="que">' + esc(mv.detalle) +
+      '<div class="quien">' + esc(mv.hora) + ' · ' + esc(mv.usuario) +
+      (mv.categoria ? ' · ' + esc(String(mv.categoria).trim()) : '') + '</div></div>' +
+      '<div class="cuanto ' + (mv.tipo === 'E' ? 'e' : 's') + '">' + signo + ' ' + fmtMon(mv.monto) + '</div>';
+    // en solo lectura no va la cruz de anular
+    if (!estado.soloLectura) {
+      var b = document.createElement('button');
+      b.textContent = '✕';
+      b.title = 'Anular';
+      b.onclick = function () {
+        if (!confirm('¿Anular este movimiento?\n' + mv.detalle + ' ' + fmtMon(mv.monto))) return;
+        api({ accion: 'anular', id: mv.id }).then(refrescar).catch(function (e) { mostrarError(e.message); });
+      };
+      div.appendChild(b);
+    }
+    m.appendChild(div);
+  });
+}
+
+function refrescar() {
+  return api({ accion: 'estado' }).then(pintarEstado).catch(function (e) { mostrarError(e.message); });
+}
+
+/* ---- conteo de la contadora Glory ---- */
+var conteoUsado = localStorage.getItem('conteoUsado') || '';
+function mostrarConteoGlory(c) {
+  var caja = $('glory');
+  // clave por sesión + monto: si agregás un billete, el monto cambia y se vuelve a mostrar
+  var clave = c ? (c.sesion + ':' + c.valor) : '';
+  if (!c || !c.valor || clave === conteoUsado) { caja.classList.add('oculto'); return; }
+  caja.classList.toggle('alerta', !!c.alerta);
+  var aviso = c.alerta
+    ? '<br><small>⚠️ Hay billetes que no reconozco: VERIFICÁ el monto contra el ticket.</small>'
+    : '';
+  // La cantidad de billetes se sacó a pedido de Lucas (13/8): no la usan.
+  // El puente la sigue mandando, así que si algún día hace falta, es volver a
+  // poner c.billetes acá.
+  caja.innerHTML = '<span>💵 La contadora contó<br><b>$ ' + fmt(c.valor) + '</b>' + aviso + '</span>';
+  var b = document.createElement('button');
+  b.textContent = 'Usar';
+  b.onclick = function () {
+    $('monto').value = '$ ' + fmt(c.valor);
+    conteoUsado = clave;
+    try { localStorage.setItem('conteoUsado', clave); } catch (e) {}
+    caja.classList.add('oculto');
+  };
+  caja.appendChild(b);
+  caja.classList.remove('oculto');
+}
+
+/* tipo */
+function pintarTipo() {
+  $('btnE').classList.toggle('on', estado.tipo === 'E');
+  $('btnS').classList.toggle('on', estado.tipo === 'S');
+  var c = $('confirmar');
+  c.classList.toggle('salida', estado.tipo === 'S');
+  c.textContent = estado.tipo === 'E' ? 'Confirmar ingreso' : 'Confirmar egreso';
+}
+$('btnE').onclick = function () { estado.tipo = 'E'; pintarTipo(); };
+$('btnS').onclick = function () { estado.tipo = 'S'; pintarTipo(); };
+
+/* categorías: una sola por movimiento (así es la planilla) */
+function pintarChipsCategoria() {
+  var caja = $('categorias');
+  caja.innerHTML = '';
+  CATEGORIAS.forEach(function (c) {
+    var b = document.createElement('button');
+    b.className = 'chip';
+    b.textContent = c.trim();   // en pantalla sin el espacio del final
+    b.dataset.c = c;
+    b.onclick = function () { estado.categoria = c; pintarCateg(); };
+    caja.appendChild(b);
+  });
+  pintarCateg();
+}
+function pintarCateg() {
+  [].forEach.call($('categorias').children, function (b) {
+    b.classList.toggle('on', b.dataset.c === estado.categoria);
+  });
+}
+/* el atajo puede traer una categoría con espacios distintos: se busca la de la
+   lista real para no escribir en la planilla un texto que la validación rechace */
+function setCategoria(c) {
+  var pedida = String(c || '').trim().toLowerCase();
+  var encontrada = null;
+  CATEGORIAS.forEach(function (x) { if (x.trim().toLowerCase() === pedida) encontrada = x; });
+  estado.categoria = encontrada || CATEG_DEF;
+  pintarCateg();
+}
+
+/* autocompletado */
+$('detalle').oninput = function () {
+  var q = this.value.trim().toUpperCase();
+  var caja = $('sug');
+  if (q.length < 1) { caja.classList.add('oculto'); return; }
+  var res = estado.atajos.filter(function (a) { return a.d.indexOf(q) >= 0; }).slice(0, 6);
+  if (!res.length) { caja.classList.add('oculto'); return; }
+  caja.innerHTML = '';
+  res.forEach(function (a) {
+    var div = document.createElement('div');
+    div.innerHTML = '<span>' + esc(a.d) + '</span><small>' + esc(String(a.c || '').trim()) + '</small>';
+    div.onclick = function () {
+      $('detalle').value = a.d;
+      caja.classList.add('oculto');
+      if (a.t === 'E' || a.t === 'S') { estado.tipo = a.t; pintarTipo(); }
+      setCategoria(a.c);
+      $('monto').focus();
+    };
+    caja.appendChild(div);
+  });
+  caja.classList.remove('oculto');
+};
+
+/* RED DE SEGURIDAD: si contaste ANTES de escribir el detalle, el sondeo no
+   estaba corriendo y la tarjetita no apareció. Al tocar el campo del monto
+   preguntamos una vez enseguida. El servidor guarda el último conteo 3
+   minutos, así que alcanza para recuperarlo. */
+var ultimaConsultaManual = 0;
+$('monto').addEventListener('focus', function () {
+  if (pausado || estado.enviando) return;
+  if (Date.now() - ultimaConsultaManual < 3000) return;   // sin ráfagas
+  ultimaConsultaManual = Date.now();
+  api({ accion: 'conteoRapido' })
+    .then(function (d) { mostrarConteoGlory(d.conteo); })
+    .catch(function () {});
+});
+document.addEventListener('click', function (ev) {
+  if (ev.target.id !== 'detalle') $('sug').classList.add('oculto');
+});
+
+/* monto con puntos de miles */
+$('monto').oninput = function () {
+  var limpio = this.value.replace(/\D/g, '');
+  this.value = limpio ? '$ ' + fmt(Number(limpio)) : '';
+};
+function montoActual() { return Number($('monto').value.replace(/\D/g, '')); }
+
+/* confirmar */
+$('confirmar').onclick = function () {
+  if (estado.enviando) return;
+  var detalle = $('detalle').value.trim();
+  var monto = montoActual();
+  if (!detalle) { mostrarError('Escribí el detalle del movimiento.'); return; }
+  if (!monto) { mostrarError('Poné el monto.'); return; }
+  var resumen = (estado.tipo === 'E' ? 'INGRESO' : 'EGRESO') + ' de ' + fmtMon(monto) +
+    '\n' + detalle + '\n' + estado.categoria.trim() + '\n\n¿Confirmás?';
+  if (!confirm(resumen)) return;
+
+  estado.enviando = true;
+  var b = $('confirmar');
+  b.disabled = true; b.innerHTML = '<span class="spin"></span> Guardando…';
+  // Si Google está lento, avisamos que sigue trabajando. Sin esto el botón se
+  // queda girando y da la sensación de colgado, y el usuario toca dos veces.
+  var avisoLento = setTimeout(function () {
+    b.innerHTML = '<span class="spin"></span> El servidor está lento, esperá…';
+  }, 6000);
+  // el mismo id en los reintentos evita que se cargue la plata dos veces
+  if (!estado.idPendiente) estado.idPendiente = nuevoId();
+  api({ accion: 'agregar', tipo: estado.tipo, monto: monto, detalle: detalle, categoria: estado.categoria, idCliente: estado.idPendiente })
+    .then(function (d) {
+      estado.idPendiente = null;
+      $('detalle').value = ''; $('monto').value = '';
+      estado.categoria = CATEG_DEF; pintarCateg();
+      // el servidor ya nos devuelve el estado nuevo: nos ahorramos un viaje
+      if (d && d.estado) { pintarEstado(d.estado); return; }
+      return refrescar();
+    })
+    .catch(function (e) { mostrarError(e.message); })
+    .then(function () {
+      clearTimeout(avisoLento);   // pintarTipo() le devuelve el texto normal
+      estado.enviando = false;
+      b.disabled = false;
+      pintarTipo();
+    });
+};
+
+/* actualizar */
+$('btnRefrescar').onclick = function () {
+  var b = this;
+  if (b.classList.contains('girando')) return;
+  b.classList.add('girando');
+  refrescar().then(function () { b.classList.remove('girando'); });
+};
+/* Entrar y salir de segundo plano: acá se decide si hay que pausar o cerrar. */
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden) {              // se fue a segundo plano: anotamos la hora
+    if (!ocultoDesde) ocultoDesde = Date.now();
+    return;
+  }
+
+  var afuera = ocultoDesde ? (Date.now() - ocultoDesde) : 0;
+  ocultoDesde = 0;
+  ultimoToque = Date.now();           // volver a la app cuenta como usarla
+
+  if (!localStorage.getItem('clave')) return;
+  if (afuera >= CIERRE_MS) { cerrarSesion(); return; }
+  if (afuera >= PAUSA_MS) { pausar(); return; }
+  if (!pausado && !$('app').classList.contains('oculto')) refrescar();
+});
+
+/* ---- PAUSA SOLO EN SEGUNDO PLANO ----
+   Decisión de Lucas (12/8): con la app ABIERTA y la pantalla encendida NO se
+   pausa nunca, por más que nadie la toque. Se pausa únicamente si quedó en
+   segundo plano (otra app encima, o pantalla apagada) un rato largo.
+   Igual, con la app abierta y quieta tampoco se le pide nada al servidor:
+   de eso se encarga seEstaUsando(), más abajo.
+   El tiempo en segundo plano se mide al VOLVER, no con un temporizador: los
+   celulares congelan los temporizadores de las apps que no están a la vista,
+   así que un reloj corriendo de fondo no sería confiable. */
+var PAUSA_MS  = 180000;    // 3 minutos en segundo plano -> pausa
+var CIERRE_MS = 1800000;   // 30 minutos en segundo plano -> cierra sesión
+var pausado = false;
+var ocultoDesde = 0;       // cuándo se fue a segundo plano (0 = está a la vista)
+
+function estaPausado() { return pausado; }
+
+function pausar() {
+  if (pausado || $('app').classList.contains('oculto')) return;
+  pausado = true;
+  $('app').classList.add('oculto');
+  $('pausa').classList.remove('oculto');
+}
+
+function despausar() {
+  if (!pausado) return;
+  pausado = false;
+  $('pausa').classList.add('oculto');
+  $('app').classList.remove('oculto');
+  pausaConteo = RITMO_MS;
+  pausaRefresco = 180000;
+  refrescar();
+}
+
+function cerrarSesion() {
+  localStorage.removeItem('clave');
+  pausado = false;
+  $('pausa').classList.add('oculto');
+  $('app').classList.add('oculto');
+  $('login').classList.remove('oculto');
+  $('entrar').textContent = 'Entrar';
+  $('clave').value = '';
+}
+
+/* si la app quedó quieta y la vuelven a tocar, se actualiza sola */
+var ultimaAct = Date.now();
+var ultimoToque = Date.now();   // marca de actividad: la usa el ritmo del sondeo
+function toqueDeUso() {
+  ultimoToque = Date.now();
+  if (pausado) return;   // despausar se hace con el botón, no con cualquier roce
+  if ($('app').classList.contains('oculto') || estado.enviando) return;
+  if (Date.now() - ultimaAct < 60000) return;
+  ultimaAct = Date.now();
+  refrescar();
+}
+
+$('btnSeguir').onclick = despausar;
+document.addEventListener('touchstart', toqueDeUso, { passive: true });
+document.addEventListener('mousedown', toqueDeUso);
+document.addEventListener('focusin', toqueDeUso);
+
+/* SONDEO DEL CONTEO DE LA CONTADORA.
+   OJO: antes esto era un setInterval fijo de 5s, que disparaba SIEMPRE aunque
+   la respuesta anterior no hubiera llegado. Cuando el servidor de Google se
+   ponía lento (o se sumaba un segundo usuario) los pedidos se apilaban unos
+   encima de otros: más pedidos -> más cola -> más lento -> más pedidos.
+   Se comía la cuota diaria y la app tiraba errores de servidor.
+   Ahora el próximo pedido se agenda RECIÉN cuando terminó el anterior, y si
+   falla se afloja el ritmo solo. NO volver a poner setInterval acá. */
+/* SOLO PREGUNTA EL APARATO QUE SE ESTÁ USANDO.
+   Un celular con la app abierta pero quieto NO le pregunta nada al servidor.
+   Recién cuando alguien lo toca (que es cuando va a cargar un movimiento)
+   empieza a preguntar, y deja de hacerlo al minuto de quedarse quieto. */
+var ACTIVO_MS = 60000;
+/* SOLO SE PREGUNTA MIENTRAS HAY UN MOVIMIENTO EMPEZADO (idea de Lucas, 13/8).
+   La app pregunta por la contadora desde que se escribe el detalle hasta que
+   se confirma el movimiento. El orden de trabajo pasa a ser "escribo el nombre
+   del fletero y después cuento", y así el sondeo corre unos minutos por
+   movimiento en vez de todo el día.
+   Antes preguntaba siempre que la app estuviera a la vista: ~240 pedidos por
+   hora por aparato. Ahora son unos pocos por movimiento, y justamente por eso
+   se puede volver a 5 s (más rápido que los 15 s) gastando mucho menos.
+   OJO: NO usar "tocaron la pantalla" como señal (se probó en la v14 y falló):
+   se cuenta en la máquina SIN tocar el celular, así que la tarjetita no
+   aparecía nunca. */
+var RITMO_MS = 5000;
+var pausaConteo = RITMO_MS;
+
+function hayMovimientoEmpezado() {
+  var d = $('detalle');
+  return !!(d && d.value.trim());
+}
+
+function seEstaUsando() { return (Date.now() - ultimoToque) < ACTIVO_MS; }
+
+/* CORTE NOCTURNO (pedido de Lucas, 13/8): la caja no se usa de 18 a 5.
+   En esa franja, un celular olvidado con la pantalla encendida no debe
+   preguntar nada. Pero si alguien SÍ la está usando a esa hora, tiene que
+   funcionar igual: por eso de noche se pregunta solo si tocaron la pantalla
+   hace poco. Con un celular olvidado nadie toca nada -> cero pedidos. */
+function esHorarioDeUso() {
+  var h = new Date().getHours();
+  return (h >= 5 && h < 18);
+}
+function debePreguntarPorElConteo() {
+  return esHorarioDeUso() || seEstaUsando();
+}
+
+function cicloConteo() {
+  // OJO: acá NO va seEstaUsando(). En recepción primero se cuenta en la
+  // contadora (sin tocar el celular) y recién después se mira el celular
+  // esperando la tarjetita: si esta pregunta dependiera de tocar el celular,
+  // la tarjetita no aparecería nunca (pasó el 12/8). Con la app a la vista
+  // se pregunta siempre; pantalla apagada, segundo plano o pausa ya cortan.
+  if (document.hidden || pausado || $('app').classList.contains('oculto') ||
+      estado.enviando || !hayMovimientoEmpezado() || !debePreguntarPorElConteo()) {
+    setTimeout(cicloConteo, 5000);
+    return;
+  }
+  api({ accion: 'conteoRapido' })
+    .then(function (d) { mostrarConteoGlory(d.conteo); pausaConteo = RITMO_MS; })
+    .catch(function () { pausaConteo = Math.min(pausaConteo * 2, 60000); })
+    .then(function () { setTimeout(cicloConteo, pausaConteo); });
+}
+setTimeout(cicloConteo, 5000);
+
+/* refresco completo (saldo y movimientos): mismo criterio, sin apilar.
+   Va por api() y no por refrescar() para no mostrar cartel de error en cada
+   refresco de fondo (el usuario no pidió nada, no tiene que ver un error). */
+var pausaRefresco = 180000;
+function cicloRefresco() {
+  // En SOLO LECTURA la app es un tablero para mirar el saldo en vivo, así que
+  // se refresca sola aunque nadie toque la pantalla. Para quien carga plata se
+  // mantiene el freno de siempre: solo si estuvo usando la app hace poco.
+  var miraNadaMas = estado.soloLectura;
+  if (document.hidden || pausado || $('app').classList.contains('oculto') ||
+      estado.enviando || (!miraNadaMas && !seEstaUsando())) {
+    setTimeout(cicloRefresco, 60000);
+    return;
+  }
+  api({ accion: 'estado' })
+    .then(function (d) { pintarEstado(d); pausaRefresco = miraNadaMas ? 120000 : 180000; })
+    .catch(function () { pausaRefresco = Math.min(pausaRefresco * 2, 900000); })
+    .then(function () { setTimeout(cicloRefresco, pausaRefresco); });
+}
+setTimeout(cicloRefresco, 120000);
+
+/* arranque */
+pintarTipo();
+pintarChipsCategoria();
+if (localStorage.getItem('clave')) {
+  $('login').classList.add('oculto');
+
+  // PINTURA INSTANTÁNEA: mostramos lo último que se vio (guardado en el
+  // celular) apenas se abre, con un cartelito de "actualizando", en vez de
+  // dejar la pantalla en blanco mientras el servidor responde.
+  var cacheE = null;
+  try { cacheE = JSON.parse(localStorage.getItem('cacheEstado') || 'null'); } catch (e) {}
+  if (cacheE) {
+    pintarEstado(cacheE, true);
+    $('app').classList.remove('oculto');
+    $('fecha').textContent += ' · ⏳ actualizando…';
+  }
+
+  api({ accion: 'estado' })
+    .then(function (d) { pintarEstado(d); $('app').classList.remove('oculto'); })
+    .catch(function (e) {
+      // OJO: acá antes se cerraba la sesión ante CUALQUIER error, incluso si
+      // el servidor simplemente tardó. Con el servidor lento eso echaba al
+      // usuario y lo obligaba a reteclear la clave. Ahora solo se cierra si
+      // el servidor dijo de verdad que la clave está mal.
+      if (/clave|bloquead/i.test(e.message || '')) {
+        localStorage.removeItem('clave');
+        localStorage.removeItem('cacheEstado');
+        $('app').classList.add('oculto');
+        $('login').classList.remove('oculto');
+      } else if (cacheE) {
+        mostrarError('El servidor está lento: esto es lo último guardado. Tocá ⟳ para reintentar.');
+      } else {
+        $('login').classList.remove('oculto');
+        mostrarError(e.message);
+      }
+    });
+}
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+</script>
+</body>
+</html>
