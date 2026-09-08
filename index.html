@@ -52,6 +52,13 @@
   .btn-tipo.entrada.on { background: var(--verde-bg); border-color: var(--verde); color: var(--verde-tx); }
   .btn-tipo.salida.on { background: var(--rojo-bg); border-color: var(--rojo); color: var(--rojo-tx); }
   .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  /* Las categorías van en UN SOLO renglón que se desliza con el dedo (pedido de
+     Lucas 8/9): en 4 renglones ocupaban media pantalla del celular.
+     La barra de desplazamiento se esconde a propósito — se arrastra, no se
+     apunta — y los chips no se encogen para que el texto no se parta. */
+  .chips.tira { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+  .chips.tira::-webkit-scrollbar { display: none; }
+  .chips.tira .chip { flex: 0 0 auto; }
   .chip { padding: 10px 16px; border-radius: 999px; border: 1.5px solid var(--borde); background: var(--card); font-size: 16px; color: var(--gris); }
   .chip.on { background: var(--azul-bg); border-color: var(--azul); color: var(--azul-tx); font-weight: 600; }
   input[type=text], input[type=tel], input[type=password] { width: 100%; padding: 13px; font-size: 18px; border: 1.5px solid var(--borde); border-radius: 10px; background: var(--card); color: var(--texto); }
@@ -135,8 +142,8 @@
       <!-- La categoría va DEBAJO del monto y arranca siempre en la de todos los
            días ("Servicios Tercearizados"). Al elegir un detalle conocido, el
            atajo la cambia solo: casi nunca hay que tocarla. -->
-      <label>Categoría</label>
-      <div class="chips" id="categorias"></div>
+      <label>Categoría <span id="categAuto" style="opacity:.75"></span></label>
+      <div class="chips tira" id="categorias"></div>
 
       <button class="confirmar" id="confirmar">Confirmar ingreso</button>
     </div>
@@ -148,7 +155,7 @@
     <!-- Sirve para saber de un vistazo si un celular quedó con una versión
          vieja: si dos aparatos muestran versiones distintas, uno no actualizó. -->
     <div style="text-align:center;color:var(--gris);font-size:12px;margin-top:14px">
-      versión 1 · <span id="medidor">último pedido: —</span>
+      versión 2 · <span id="medidor">último pedido: —</span>
     </div>
   </div>
 </div>
@@ -165,7 +172,7 @@ var CATEGORIAS = ['Servicios Tercearizados ', 'Ventas', 'Servicios', 'Comida', '
   'Sueldos', 'Viaticos', 'Alquiler', 'Logística', 'Otros Egresos', 'Otros Ingresos', 'PREM/EXTRAS'];
 var CATEG_DEF = 'Servicios Tercearizados ';
 
-var estado = { tipo: 'E', categoria: CATEG_DEF, atajos: [], enviando: false, soloLectura: false };
+var estado = { tipo: 'E', categoria: CATEG_DEF, categManual: false, atajos: [], enviando: false, soloLectura: false };
 
 function $(id) { return document.getElementById(id); }
 /* evita que un detalle con caracteres raros rompa (o altere) la pantalla */
@@ -352,8 +359,8 @@ function pintarTipo() {
   c.classList.toggle('salida', estado.tipo === 'S');
   c.textContent = estado.tipo === 'E' ? 'Confirmar ingreso' : 'Confirmar egreso';
 }
-$('btnE').onclick = function () { estado.tipo = 'E'; pintarTipo(); };
-$('btnS').onclick = function () { estado.tipo = 'S'; pintarTipo(); };
+$('btnE').onclick = function () { estado.tipo = 'E'; pintarTipo(); adivinarCategoria(); };
+$('btnS').onclick = function () { estado.tipo = 'S'; pintarTipo(); adivinarCategoria(); };
 
 /* categorías: una sola por movimiento (así es la planilla) */
 function pintarChipsCategoria() {
@@ -364,7 +371,13 @@ function pintarChipsCategoria() {
     b.className = 'chip';
     b.textContent = c.trim();   // en pantalla sin el espacio del final
     b.dataset.c = c;
-    b.onclick = function () { estado.categoria = c; pintarCateg(); };
+    // elegirla a mano manda: a partir de ahí no se vuelve a adivinar sola
+    b.onclick = function () {
+      estado.categoria = c;
+      estado.categManual = true;
+      $('categAuto').textContent = '';
+      pintarCateg();
+    };
     caja.appendChild(b);
   });
   pintarCateg();
@@ -376,16 +389,65 @@ function pintarCateg() {
 }
 /* el atajo puede traer una categoría con espacios distintos: se busca la de la
    lista real para no escribir en la planilla un texto que la validación rechace */
-function setCategoria(c) {
+function setCategoria(c, comoLaEligio) {
   var pedida = String(c || '').trim().toLowerCase();
   var encontrada = null;
   CATEGORIAS.forEach(function (x) { if (x.trim().toLowerCase() === pedida) encontrada = x; });
   estado.categoria = encontrada || CATEG_DEF;
+  var av = $('categAuto');
+  if (av) av.textContent = comoLaEligio ? ('· ' + comoLaEligio) : '';
   pintarCateg();
+  // la tira se desliza sola hasta la categoría elegida: si quedó fuera de la
+  // parte visible, el usuario no vería cuál se puso
+  var on = $('categorias').querySelector('.chip.on');
+  if (on && on.scrollIntoView) {
+    // 'nearest' y no 'center': centrar un chip ancho lo dejaba cortado por la
+    // izquierda. Así, el que ya se ve no se mueve y el que no, entra entero.
+    try { on.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
+  }
+}
+
+/* ---- LA CATEGORÍA SE ADIVINA SOLA (pedido de Lucas 8/9) ----
+   Reglas sacadas de cómo carga Tienda Perfecta, no de lo que "parecería"
+   correcto. Dato importante: ellos mandan "PAGO ALQUILERE" a Otros Egresos, NO
+   a la categoría Alquiler, así que acá no se corrige lo que hacen: se copia.
+   El orden manda: primero lo que ya se aprendió de las cargas anteriores,
+   después los patrones, y al final el cajón de sastre por tipo. */
+function inferirCategoria(detalle, tipo) {
+  var d = String(detalle || '').trim().toUpperCase();
+  if (!d) return null;
+
+  // 1) lo que ya se cargó antes con ese mismo detalle: la memoria gana siempre
+  for (var i = 0; i < estado.atajos.length; i++) {
+    if (String(estado.atajos[i].d).toUpperCase() === d && estado.atajos[i].c) {
+      return { categoria: estado.atajos[i].c, motivo: 'como la vez anterior' };
+    }
+  }
+
+  // 2) los códigos de todos los días
+  //    R509 EZE = rendición de reparto | P34 LEAN = pago al chofer | CLI 5053 = cobro
+  if (/^R\s*\d+\b/.test(d)) return { categoria: 'Servicios Tercearizados ', motivo: 'reparto' };
+  if (/^P\s*\d+\b/.test(d)) return { categoria: 'Servicios Tercearizados ', motivo: 'pago de reparto' };
+  if (/^CLI\b/.test(d)) return { categoria: 'Servicios Tercearizados ', motivo: 'cliente' };
+  if (/PREMIO/.test(d)) return { categoria: 'PREM/EXTRAS', motivo: 'premio' };
+
+  // 3) cualquier otra cosa: el cajón donde ellos ponen todo lo suelto.
+  //    Sin cartelito: no hay nada que explicar y "no lo reconocí" solo haría ruido.
+  return { categoria: (tipo === 'E' ? 'Otros Ingresos' : 'Otros Egresos'), motivo: '' };
+}
+
+/* Vuelve a adivinar, salvo que la persona haya elegido la categoría a mano:
+   en ese caso su decisión no se pisa. */
+function adivinarCategoria() {
+  if (estado.categManual) return;
+  var r = inferirCategoria($('detalle').value, estado.tipo);
+  if (r) setCategoria(r.categoria, r.motivo);
+  else setCategoria(CATEG_DEF, '');
 }
 
 /* autocompletado */
 $('detalle').oninput = function () {
+  adivinarCategoria();
   var q = this.value.trim().toUpperCase();
   var caja = $('sug');
   if (q.length < 1) { caja.classList.add('oculto'); return; }
@@ -399,7 +461,8 @@ $('detalle').oninput = function () {
       $('detalle').value = a.d;
       caja.classList.add('oculto');
       if (a.t === 'E' || a.t === 'S') { estado.tipo = a.t; pintarTipo(); }
-      setCategoria(a.c);
+      estado.categManual = false;
+      setCategoria(a.c, 'como la vez anterior');
       $('monto').focus();
     };
     caja.appendChild(div);
@@ -456,7 +519,8 @@ $('confirmar').onclick = function () {
     .then(function (d) {
       estado.idPendiente = null;
       $('detalle').value = ''; $('monto').value = '';
-      estado.categoria = CATEG_DEF; pintarCateg();
+      estado.categManual = false;
+      setCategoria(CATEG_DEF, '');
       // el servidor ya nos devuelve el estado nuevo: nos ahorramos un viaje
       if (d && d.estado) { pintarEstado(d.estado); return; }
       return refrescar();
