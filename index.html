@@ -151,7 +151,7 @@
     <!-- Sirve para saber de un vistazo si un celular quedó con una versión
          vieja: si dos aparatos muestran versiones distintas, uno no actualizó. -->
     <div style="text-align:center;color:var(--gris);font-size:12px;margin-top:14px">
-      versión 7 · <span id="medidor">último pedido: —</span>
+      versión 8 · <span id="medidor">último pedido: —</span>
     </div>
   </div>
 </div>
@@ -278,7 +278,6 @@ function iniciar(d) {
 
 /* ---- UI principal ---- */
 function pintarEstado(d, esCache) {
-  ultimaAct = Date.now();
   estado.atajos = d.atajos || [];
   if (d.categorias && d.categorias.length) { CATEGORIAS = d.categorias; armarCategorias(); }
 
@@ -614,18 +613,26 @@ function cerrarSesion() {
 }
 
 /* si la app quedó quieta y la vuelven a tocar, se actualiza sola */
-var ultimaAct = Date.now();
+// (ya no hace falta llevar cuándo fue la última actualización del saldo: el toque
+// de pantalla ya no lo dispara, va solo cada 10 minutos)
 var ultimoToque = Date.now();   // marca de actividad: la usa el ritmo del sondeo
+/* TOCAR LA PANTALLA PIDE EL CONTEO, NO EL SALDO (decisión de Lucas, 18/9).
+   Antes cada toque se iba a buscar el saldo, que es el pedido pesado —abre y
+   lee la planilla— y encima le hacía cola al de la contadora. Ahora el toque
+   trae SOLO lo que contó la máquina, que es lo que se está esperando: así la
+   tarjetita aparece lo antes posible.
+   El saldo se actualiza por su cuenta cada 10 minutos, con el botón ⟳, al
+   entrar y al cargar o anular un movimiento. */
 function toqueDeUso() {
   ultimoToque = Date.now();
   if (pausado) return;   // despausar se hace con el botón, no con cualquier roce
   if ($('app').classList.contains('oculto') || estado.enviando) return;
-  // con un movimiento empezado no se va a buscar el saldo: prioridad a la
-  // contadora (si no, cada toque de pantalla mete un pedido pesado adelante)
-  if (hayMovimientoEmpezado()) return;
-  if (Date.now() - ultimaAct < 300000) return;   // como mucho una vez cada 5 min
-  ultimaAct = Date.now();
-  refrescar();
+  if (estado.soloLectura) return;          // ahí no hay contadora que mirar
+  if (Date.now() - ultimaConsultaManual < 3000) return;   // sin ráfagas
+  ultimaConsultaManual = Date.now();
+  api({ accion: 'conteoRapido' })
+    .then(function (d) { mostrarConteoGlory(d.conteo); })
+    .catch(function () {});
 }
 
 $('btnSeguir').onclick = despausar;
