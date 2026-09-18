@@ -61,7 +61,11 @@
   .chips.tira .chip { flex: 0 0 auto; }
   .chip { padding: 10px 16px; border-radius: 999px; border: 1.5px solid var(--borde); background: var(--card); font-size: 16px; color: var(--gris); }
   .chip.on { background: var(--azul-bg); border-color: var(--azul); color: var(--azul-tx); font-weight: 600; }
-  input[type=text], input[type=tel], input[type=password] { width: 100%; padding: 13px; font-size: 18px; border: 1.5px solid var(--borde); border-radius: 10px; background: var(--card); color: var(--texto); }
+  input[type=text], input[type=tel], input[type=password], select { width: 100%; padding: 13px; font-size: 18px; border: 1.5px solid var(--borde); border-radius: 10px; background: var(--card); color: var(--texto); }
+  /* la flecha propia del sistema desaparece sobre fondo negro en algunos
+     navegadores, así que se dibuja una */
+  select { appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--gris) 50%), linear-gradient(135deg, var(--gris) 50%, transparent 50%); background-position: calc(100% - 20px) 22px, calc(100% - 14px) 22px; background-size: 6px 6px, 6px 6px; background-repeat: no-repeat; padding-right: 38px; }
+  select option { background: var(--card); color: var(--texto); }
   input:focus { outline: none; border-color: var(--azul); }
   #monto { font-size: 32px; font-weight: 600; }   /* monto escrito a mano */
   .sug { border: 1.5px solid var(--borde); border-radius: 10px; margin-top: 4px; overflow: hidden; background: var(--card); }
@@ -131,7 +135,13 @@
       </div>
 
       <label>Detalle</label>
-      <input type="text" id="detalle" autocomplete="off" placeholder="Escribí y elegí de la lista">
+      <!-- El detalle se ELIGE de una lista (pedido de Lucas 18/9). La lista sale
+           de lo que ya cargaron: al arrancar, los 151 detalles de septiembre.
+           La última opción abre el campo de texto, porque los códigos de reparto
+           cambian en cada vuelta (R101 → R201 → R301…) y siempre va a haber uno
+           que todavía no está en la lista. -->
+      <select id="detalleSel"></select>
+      <input type="text" id="detalle" class="oculto" autocomplete="off" placeholder="Escribilo acá" style="margin-top:6px">
       <div class="sug oculto" id="sug"></div>
 
       <label>Monto</label>
@@ -155,7 +165,7 @@
     <!-- Sirve para saber de un vistazo si un celular quedó con una versión
          vieja: si dos aparatos muestran versiones distintas, uno no actualizó. -->
     <div style="text-align:center;color:var(--gris);font-size:12px;margin-top:14px">
-      versión 2 · <span id="medidor">último pedido: —</span>
+      versión 3 · <span id="medidor">último pedido: —</span>
     </div>
   </div>
 </div>
@@ -244,13 +254,25 @@ function nuevoId() {
 }
 
 /* ---- login ---- */
+/* ENTRAR RÁPIDO. Antes acá se pedía el `estado` completo, que abre y lee la
+   planilla: 3 a 5 segundos de más mirando la pantalla de la clave.
+   Ahora se valida solo la clave (el servidor no toca la planilla para eso) y se
+   entra enseguida; el saldo y los movimientos se piden ya adentro, con lo
+   último visto en pantalla mientras llegan. */
 $('entrar').onclick = function () {
   var c = $('clave').value.trim();
   if (!c) return;
   $('entrar').innerHTML = '<span class="spin"></span>';
-  api({ accion: 'estado' }).then(function (d) {
+  api({ accion: 'entrar' }).then(function (d) {
     localStorage.setItem('clave', c);
-    iniciar(d);
+
+    var previo = null;
+    try { previo = JSON.parse(localStorage.getItem('cacheEstado') || 'null'); } catch (e) {}
+    if (previo) { previo.usuario = d.usuario; previo.soloLectura = d.soloLectura; }
+
+    iniciar(previo || { usuario: d.usuario, soloLectura: d.soloLectura, movimientos: [], atajos: [] });
+    $('fecha').textContent += ' · ⏳ actualizando…';
+    refrescar();
   }).catch(function (e) {
     $('entrar').textContent = 'Entrar';
     mostrarError(e.message);
@@ -266,7 +288,7 @@ function iniciar(d) {
 /* ---- UI principal ---- */
 function pintarEstado(d, esCache) {
   ultimaAct = Date.now();
-  estado.atajos = d.atajos || [];
+  if (d.atajos) { estado.atajos = d.atajos; armarDesplegable(); }
   if (d.categorias && d.categorias.length) { CATEGORIAS = d.categorias; pintarChipsCategoria(); }
 
   /* SOLO LECTURA: quién puede cargar y quién solo mira lo decide el SERVIDOR
@@ -291,7 +313,9 @@ function pintarEstado(d, esCache) {
   var diaMostrar = d.dia || hoy.getDate();
   var aviso = (d.dia && d.dia !== hoy.getDate()) ? ' ⚠️' : '';
   $('fecha').textContent = dias[hoy.getDay()] + ' ' + diaMostrar + ' de ' + meses[hoy.getMonth()] + aviso + ' · ' + d.usuario;
-  $('saldo').textContent = '$ ' + fmt(d.saldo);
+  // mientras el saldo todavía no llegó (recién entrado, sin nada guardado) va un
+  // guion: mostrar "$ 0" haría pensar que la caja está vacía
+  $('saldo').textContent = (typeof d.saldo === 'number') ? ('$ ' + fmt(d.saldo)) : '—';
   $('subsaldo').textContent = (d.entradasHoy || d.salidasHoy)
     ? ('hoy: + ' + fmt(d.entradasHoy || 0) + '   − ' + fmt(d.salidasHoy || 0)) : '';
   var m = $('movs');
@@ -440,12 +464,91 @@ function inferirCategoria(detalle, tipo) {
    en ese caso su decisión no se pisa. */
 function adivinarCategoria() {
   if (estado.categManual) return;
-  var r = inferirCategoria($('detalle').value, estado.tipo);
+  var r = inferirCategoria(detalleActual(), estado.tipo);
   if (r) setCategoria(r.categoria, r.motivo);
   else setCategoria(CATEG_DEF, '');
 }
 
 /* autocompletado */
+/* ---- EL DESPLEGABLE DEL DETALLE ----
+   Se arma con lo que ya se cargó alguna vez (la hoja APP_ATAJOS, que el
+   servidor manda ordenada por cuántas veces se usó cada una). Arriba van las de
+   todos los días y abajo el resto en orden alfabético, para no tener que
+   recorrer 150 renglones buscando la de siempre. */
+var OTRO = 'otro';   // valor centinela: no puede chocar con un detalle real
+
+function armarDesplegable() {
+  var sel = $('detalleSel');
+  var elegido = sel.value;
+  sel.innerHTML = '';
+
+  function opcion(texto, valor) {
+    var o = document.createElement('option');
+    o.value = (valor === undefined) ? texto : valor;
+    o.textContent = texto;
+    return o;
+  }
+  sel.appendChild(opcion('— Elegí el detalle —', ''));
+
+  var lista = estado.atajos || [];
+  if (lista.length) {
+    var usados = lista.slice(0, 12);
+    var resto = lista.slice(12).slice().sort(function (a, b) {
+      return String(a.d).localeCompare(String(b.d), 'es');
+    });
+    if (usados.length) {
+      var g1 = document.createElement('optgroup');
+      g1.label = 'Los de siempre';
+      usados.forEach(function (a) { g1.appendChild(opcion(a.d)); });
+      sel.appendChild(g1);
+    }
+    if (resto.length) {
+      var g2 = document.createElement('optgroup');
+      g2.label = 'Todos los demás';
+      resto.forEach(function (a) { g2.appendChild(opcion(a.d)); });
+      sel.appendChild(g2);
+    }
+  }
+  sel.appendChild(opcion('✏️  Escribir uno nuevo…', OTRO));
+
+  // si lo que estaba elegido sigue existiendo, se respeta
+  if (elegido) sel.value = elegido;
+}
+
+/* El detalle que se va a guardar: el del desplegable, o el escrito a mano
+   cuando se eligió "Escribir uno nuevo". Una sola función para que el resto de
+   la app no tenga que saber en cuál de los dos está. */
+function detalleActual() {
+  var sel = $('detalleSel');
+  if (sel.value === OTRO) return $('detalle').value.trim();
+  return sel.value.trim();
+}
+
+function modoEscribir(prender) {
+  $('detalle').classList.toggle('oculto', !prender);
+  if (prender) { $('detalle').focus(); }
+  else { $('detalle').value = ''; $('sug').classList.add('oculto'); }
+}
+
+$('detalleSel').onchange = function () {
+  if (this.value === OTRO) { modoEscribir(true); adivinarCategoria(); return; }
+  modoEscribir(false);
+  // al elegir uno conocido, se preseleccionan tipo y categoría como la última vez
+  var d = this.value;
+  for (var i = 0; i < estado.atajos.length; i++) {
+    var a = estado.atajos[i];
+    if (a.d === d) {
+      if (a.t === 'E' || a.t === 'S') { estado.tipo = a.t; pintarTipo(); }
+      estado.categManual = false;
+      setCategoria(a.c, 'como la vez anterior');
+      $('monto').focus();
+      return;
+    }
+  }
+  estado.categManual = false;
+  adivinarCategoria();
+};
+
 $('detalle').oninput = function () {
   adivinarCategoria();
   var q = this.value.trim().toUpperCase();
@@ -497,9 +600,9 @@ function montoActual() { return Number($('monto').value.replace(/\D/g, '')); }
 /* confirmar */
 $('confirmar').onclick = function () {
   if (estado.enviando) return;
-  var detalle = $('detalle').value.trim();
+  var detalle = detalleActual();
   var monto = montoActual();
-  if (!detalle) { mostrarError('Escribí el detalle del movimiento.'); return; }
+  if (!detalle) { mostrarError('Elegí el detalle del movimiento en la lista.'); return; }
   if (!monto) { mostrarError('Poné el monto.'); return; }
   var resumen = (estado.tipo === 'E' ? 'INGRESO' : 'EGRESO') + ' de ' + fmtMon(monto) +
     '\n' + detalle + '\n' + estado.categoria.trim() + '\n\n¿Confirmás?';
@@ -518,7 +621,7 @@ $('confirmar').onclick = function () {
   api({ accion: 'agregar', tipo: estado.tipo, monto: monto, detalle: detalle, categoria: estado.categoria, idCliente: estado.idPendiente })
     .then(function (d) {
       estado.idPendiente = null;
-      $('detalle').value = ''; $('monto').value = '';
+      $('detalleSel').value = ''; modoEscribir(false); $('monto').value = '';
       estado.categManual = false;
       setCategoria(CATEG_DEF, '');
       // el servidor ya nos devuelve el estado nuevo: nos ahorramos un viaje
@@ -646,8 +749,7 @@ var RITMO_MS = 5000;
 var pausaConteo = RITMO_MS;
 
 function hayMovimientoEmpezado() {
-  var d = $('detalle');
-  return !!(d && d.value.trim());
+  return !!detalleActual();
 }
 
 function seEstaUsando() { return (Date.now() - ultimoToque) < ACTIVO_MS; }
@@ -707,6 +809,7 @@ setTimeout(cicloRefresco, 120000);
 /* arranque */
 pintarTipo();
 pintarChipsCategoria();
+armarDesplegable();
 if (localStorage.getItem('clave')) {
   $('login').classList.add('oculto');
 
