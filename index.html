@@ -51,16 +51,6 @@
   .btn-tipo { flex: 1; padding: 14px 0; font-size: 18px; font-weight: 600; border-radius: 10px; border: 1.5px solid var(--borde); background: var(--card); color: var(--gris); }
   .btn-tipo.entrada.on { background: var(--verde-bg); border-color: var(--verde); color: var(--verde-tx); }
   .btn-tipo.salida.on { background: var(--rojo-bg); border-color: var(--rojo); color: var(--rojo-tx); }
-  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
-  /* Las categorías van en UN SOLO renglón que se desliza con el dedo (pedido de
-     Lucas 8/9): en 4 renglones ocupaban media pantalla del celular.
-     La barra de desplazamiento se esconde a propósito — se arrastra, no se
-     apunta — y los chips no se encogen para que el texto no se parta. */
-  .chips.tira { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
-  .chips.tira::-webkit-scrollbar { display: none; }
-  .chips.tira .chip { flex: 0 0 auto; }
-  .chip { padding: 10px 16px; border-radius: 999px; border: 1.5px solid var(--borde); background: var(--card); font-size: 16px; color: var(--gris); }
-  .chip.on { background: var(--azul-bg); border-color: var(--azul); color: var(--azul-tx); font-weight: 600; }
   input[type=text], input[type=tel], input[type=password], select { width: 100%; padding: 13px; font-size: 18px; border: 1.5px solid var(--borde); border-radius: 10px; background: var(--card); color: var(--texto); }
   /* la flecha propia del sistema desaparece sobre fondo negro en algunos
      navegadores, así que se dibuja una */
@@ -135,13 +125,10 @@
       </div>
 
       <label>Detalle</label>
-      <!-- El detalle se ELIGE de una lista (pedido de Lucas 18/9). La lista sale
-           de lo que ya cargaron: al arrancar, los 151 detalles de septiembre.
-           La última opción abre el campo de texto, porque los códigos de reparto
-           cambian en cada vuelta (R101 → R201 → R301…) y siempre va a haber uno
-           que todavía no está en la lista. -->
-      <select id="detalleSel"></select>
-      <input type="text" id="detalle" class="oculto" autocomplete="off" placeholder="Escribilo acá" style="margin-top:6px">
+      <!-- Igual que en la caja de Pehuenia: se escribe y van apareciendo abajo
+           los que coinciden con lo tecleado. La lista de donde salen son los 151
+           detalles de septiembre más lo que se vaya cargando. -->
+      <input type="text" id="detalle" autocomplete="off" placeholder="Escribí las primeras letras">
       <div class="sug oculto" id="sug"></div>
 
       <label>Monto</label>
@@ -153,7 +140,7 @@
            días ("Servicios Tercearizados"). Al elegir un detalle conocido, el
            atajo la cambia solo: casi nunca hay que tocarla. -->
       <label>Categoría <span id="categAuto" style="opacity:.75"></span></label>
-      <div class="chips tira" id="categorias"></div>
+      <select id="categoriaSel"></select>
 
       <button class="confirmar" id="confirmar">Confirmar ingreso</button>
     </div>
@@ -165,7 +152,7 @@
     <!-- Sirve para saber de un vistazo si un celular quedó con una versión
          vieja: si dos aparatos muestran versiones distintas, uno no actualizó. -->
     <div style="text-align:center;color:var(--gris);font-size:12px;margin-top:14px">
-      versión 3 · <span id="medidor">último pedido: —</span>
+      versión 4 · <span id="medidor">último pedido: —</span>
     </div>
   </div>
 </div>
@@ -288,8 +275,8 @@ function iniciar(d) {
 /* ---- UI principal ---- */
 function pintarEstado(d, esCache) {
   ultimaAct = Date.now();
-  if (d.atajos) { estado.atajos = d.atajos; armarDesplegable(); }
-  if (d.categorias && d.categorias.length) { CATEGORIAS = d.categorias; pintarChipsCategoria(); }
+  estado.atajos = d.atajos || [];
+  if (d.categorias && d.categorias.length) { CATEGORIAS = d.categorias; armarCategorias(); }
 
   /* SOLO LECTURA: quién puede cargar y quién solo mira lo decide el SERVIDOR
      (viene en d.soloLectura). Acá únicamente se esconde lo que no sirve.
@@ -386,30 +373,30 @@ function pintarTipo() {
 $('btnE').onclick = function () { estado.tipo = 'E'; pintarTipo(); adivinarCategoria(); };
 $('btnS').onclick = function () { estado.tipo = 'S'; pintarTipo(); adivinarCategoria(); };
 
-/* categorías: una sola por movimiento (así es la planilla) */
-function pintarChipsCategoria() {
-  var caja = $('categorias');
-  caja.innerHTML = '';
+/* La categoría es un DESPLEGABLE (pedido de Lucas 18/9): son 12 y en botones
+   ocupaban media pantalla. Una sola por movimiento, así es la planilla.
+   OJO: el value lleva el texto EXACTO de la planilla —incluido el espacio final
+   de "Servicios Tercearizados "— y solo se recorta para mostrarlo. */
+function armarCategorias() {
+  var sel = $('categoriaSel');
+  sel.innerHTML = '';
   CATEGORIAS.forEach(function (c) {
-    var b = document.createElement('button');
-    b.className = 'chip';
-    b.textContent = c.trim();   // en pantalla sin el espacio del final
-    b.dataset.c = c;
-    // elegirla a mano manda: a partir de ahí no se vuelve a adivinar sola
-    b.onclick = function () {
-      estado.categoria = c;
-      estado.categManual = true;
-      $('categAuto').textContent = '';
-      pintarCateg();
-    };
-    caja.appendChild(b);
+    var o = document.createElement('option');
+    o.value = c;
+    o.textContent = c.trim();
+    sel.appendChild(o);
   });
+  // elegirla a mano manda: a partir de ahí no se vuelve a adivinar sola
+  sel.onchange = function () {
+    estado.categoria = sel.value;
+    estado.categManual = true;
+    $('categAuto').textContent = '';
+  };
   pintarCateg();
 }
 function pintarCateg() {
-  [].forEach.call($('categorias').children, function (b) {
-    b.classList.toggle('on', b.dataset.c === estado.categoria);
-  });
+  var sel = $('categoriaSel');
+  if (sel.value !== estado.categoria) sel.value = estado.categoria;
 }
 /* el atajo puede traer una categoría con espacios distintos: se busca la de la
    lista real para no escribir en la planilla un texto que la validación rechace */
@@ -421,14 +408,6 @@ function setCategoria(c, comoLaEligio) {
   var av = $('categAuto');
   if (av) av.textContent = comoLaEligio ? ('· ' + comoLaEligio) : '';
   pintarCateg();
-  // la tira se desliza sola hasta la categoría elegida: si quedó fuera de la
-  // parte visible, el usuario no vería cuál se puso
-  var on = $('categorias').querySelector('.chip.on');
-  if (on && on.scrollIntoView) {
-    // 'nearest' y no 'center': centrar un chip ancho lo dejaba cortado por la
-    // izquierda. Así, el que ya se ve no se mueve y el que no, entra entero.
-    try { on.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
-  }
 }
 
 /* ---- LA CATEGORÍA SE ADIVINA SOLA (pedido de Lucas 8/9) ----
@@ -470,84 +449,7 @@ function adivinarCategoria() {
 }
 
 /* autocompletado */
-/* ---- EL DESPLEGABLE DEL DETALLE ----
-   Se arma con lo que ya se cargó alguna vez (la hoja APP_ATAJOS, que el
-   servidor manda ordenada por cuántas veces se usó cada una). Arriba van las de
-   todos los días y abajo el resto en orden alfabético, para no tener que
-   recorrer 150 renglones buscando la de siempre. */
-var OTRO = 'otro';   // valor centinela: no puede chocar con un detalle real
-
-function armarDesplegable() {
-  var sel = $('detalleSel');
-  var elegido = sel.value;
-  sel.innerHTML = '';
-
-  function opcion(texto, valor) {
-    var o = document.createElement('option');
-    o.value = (valor === undefined) ? texto : valor;
-    o.textContent = texto;
-    return o;
-  }
-  sel.appendChild(opcion('— Elegí el detalle —', ''));
-
-  var lista = estado.atajos || [];
-  if (lista.length) {
-    var usados = lista.slice(0, 12);
-    var resto = lista.slice(12).slice().sort(function (a, b) {
-      return String(a.d).localeCompare(String(b.d), 'es');
-    });
-    if (usados.length) {
-      var g1 = document.createElement('optgroup');
-      g1.label = 'Los de siempre';
-      usados.forEach(function (a) { g1.appendChild(opcion(a.d)); });
-      sel.appendChild(g1);
-    }
-    if (resto.length) {
-      var g2 = document.createElement('optgroup');
-      g2.label = 'Todos los demás';
-      resto.forEach(function (a) { g2.appendChild(opcion(a.d)); });
-      sel.appendChild(g2);
-    }
-  }
-  sel.appendChild(opcion('✏️  Escribir uno nuevo…', OTRO));
-
-  // si lo que estaba elegido sigue existiendo, se respeta
-  if (elegido) sel.value = elegido;
-}
-
-/* El detalle que se va a guardar: el del desplegable, o el escrito a mano
-   cuando se eligió "Escribir uno nuevo". Una sola función para que el resto de
-   la app no tenga que saber en cuál de los dos está. */
-function detalleActual() {
-  var sel = $('detalleSel');
-  if (sel.value === OTRO) return $('detalle').value.trim();
-  return sel.value.trim();
-}
-
-function modoEscribir(prender) {
-  $('detalle').classList.toggle('oculto', !prender);
-  if (prender) { $('detalle').focus(); }
-  else { $('detalle').value = ''; $('sug').classList.add('oculto'); }
-}
-
-$('detalleSel').onchange = function () {
-  if (this.value === OTRO) { modoEscribir(true); adivinarCategoria(); return; }
-  modoEscribir(false);
-  // al elegir uno conocido, se preseleccionan tipo y categoría como la última vez
-  var d = this.value;
-  for (var i = 0; i < estado.atajos.length; i++) {
-    var a = estado.atajos[i];
-    if (a.d === d) {
-      if (a.t === 'E' || a.t === 'S') { estado.tipo = a.t; pintarTipo(); }
-      estado.categManual = false;
-      setCategoria(a.c, 'como la vez anterior');
-      $('monto').focus();
-      return;
-    }
-  }
-  estado.categManual = false;
-  adivinarCategoria();
-};
+function detalleActual() { return $('detalle').value.trim(); }
 
 $('detalle').oninput = function () {
   adivinarCategoria();
@@ -621,7 +523,7 @@ $('confirmar').onclick = function () {
   api({ accion: 'agregar', tipo: estado.tipo, monto: monto, detalle: detalle, categoria: estado.categoria, idCliente: estado.idPendiente })
     .then(function (d) {
       estado.idPendiente = null;
-      $('detalleSel').value = ''; modoEscribir(false); $('monto').value = '';
+      $('detalle').value = ''; $('sug').classList.add('oculto'); $('monto').value = '';
       estado.categManual = false;
       setCategoria(CATEG_DEF, '');
       // el servidor ya nos devuelve el estado nuevo: nos ahorramos un viaje
@@ -808,8 +710,7 @@ setTimeout(cicloRefresco, 120000);
 
 /* arranque */
 pintarTipo();
-pintarChipsCategoria();
-armarDesplegable();
+armarCategorias();
 if (localStorage.getItem('clave')) {
   $('login').classList.add('oculto');
 
