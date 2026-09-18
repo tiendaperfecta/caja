@@ -114,7 +114,6 @@
       <div class="fecha" id="fecha"></div>
       <div style="font-size:15px;color:var(--gris)">Saldo en efectivo</div>
       <div class="monto" id="saldo">—</div>
-      <div class="usd" id="subsaldo"></div>
     </div>
     </div>
 
@@ -152,7 +151,7 @@
     <!-- Sirve para saber de un vistazo si un celular quedó con una versión
          vieja: si dos aparatos muestran versiones distintas, uno no actualizó. -->
     <div style="text-align:center;color:var(--gris);font-size:12px;margin-top:14px">
-      versión 6 · <span id="medidor">último pedido: —</span>
+      versión 7 · <span id="medidor">último pedido: —</span>
     </div>
   </div>
 </div>
@@ -308,8 +307,8 @@ function pintarEstado(d, esCache) {
   // mientras el saldo todavía no llegó (recién entrado, sin nada guardado) va un
   // guion: mostrar "$ 0" haría pensar que la caja está vacía
   $('saldo').textContent = (typeof d.saldo === 'number') ? ('$ ' + fmt(d.saldo)) : '—';
-  $('subsaldo').textContent = (d.entradasHoy || d.salidasHoy)
-    ? ('hoy: + ' + fmt(d.entradasHoy || 0) + '   − ' + fmt(d.salidasHoy || 0)) : '';
+  // debajo del saldo no va nada: Lucas sacó el renglón de entradas/salidas del
+  // día (18/9). El saldo grande es lo único que miran.
   var m = $('movs');
   if (!d.movimientos || !d.movimientos.length) { m.className = 'aviso'; m.textContent = 'Todavía no hay movimientos hoy.'; return; }
   m.className = ''; m.innerHTML = '';
@@ -621,7 +620,10 @@ function toqueDeUso() {
   ultimoToque = Date.now();
   if (pausado) return;   // despausar se hace con el botón, no con cualquier roce
   if ($('app').classList.contains('oculto') || estado.enviando) return;
-  if (Date.now() - ultimaAct < 60000) return;
+  // con un movimiento empezado no se va a buscar el saldo: prioridad a la
+  // contadora (si no, cada toque de pantalla mete un pedido pesado adelante)
+  if (hayMovimientoEmpezado()) return;
+  if (Date.now() - ultimaAct < 300000) return;   // como mucho una vez cada 5 min
   ultimaAct = Date.now();
   refrescar();
 }
@@ -655,7 +657,12 @@ var ACTIVO_MS = 60000;
    OJO: NO usar "tocaron la pantalla" como señal (se probó en la v14 y falló):
    se cuenta en la máquina SIN tocar el celular, así que la tarjetita no
    aparecía nunca. */
-var RITMO_MS = 5000;
+/* 3 segundos: es lo que tarda en aparecer la tarjetita después de contar.
+   Se puede pedir seguido porque ahora la lectura solo está encendida mientras
+   se carga un movimiento (unos minutos), no todo el día: son unas pocas
+   decenas de pedidos por movimiento, y son del tipo liviano que NO abre la
+   planilla (medido 18/9: 2,4 s contra 2,2 s del saldo completo). */
+var RITMO_MS = 3000;
 var pausaConteo = RITMO_MS;
 
 /* CUÁNDO SE LE PREGUNTA A LA CONTADORA (pedido de Lucas, 18/9).
@@ -721,20 +728,30 @@ setTimeout(cicloConteo, 5000);
 /* refresco completo (saldo y movimientos): mismo criterio, sin apilar.
    Va por api() y no por refrescar() para no mostrar cartel de error en cada
    refresco de fondo (el usuario no pidió nada, no tiene que ver un error). */
-var pausaRefresco = 180000;
+/* CADA CUÁNTO SE ACTUALIZA EL SALDO (revisado con Lucas el 18/9).
+   El saldo NO necesita estar al día al segundo: cambia solo cuando alguien
+   carga un movimiento, y en ese caso el servidor ya devuelve el saldo nuevo
+   junto con la confirmación. Así que el refresco automático pasó de 3 a 10
+   minutos. Igual se actualiza al entrar, al cargar o anular, y con el botón ⟳.
+   En SOLO LECTURA sigue más seguido (2 min) porque ahí la app es un tablero. */
+var pausaRefresco = 600000;
 function cicloRefresco() {
-  // En SOLO LECTURA la app es un tablero para mirar el saldo en vivo, así que
-  // se refresca sola aunque nadie toque la pantalla. Para quien carga plata se
-  // mantiene el freno de siempre: solo si estuvo usando la app hace poco.
   var miraNadaMas = estado.soloLectura;
+
+  /* LO IMPORTANTE: mientras se está cargando un movimiento, el saldo NO se
+     refresca. Leer la planilla entera tarda unos segundos y le hace cola al
+     pedido de la contadora, que es el que tiene que llegar rápido para que la
+     tarjetita aparezca apenas termina el conteo. El saldo puede esperar. */
+  var cargando = (!miraNadaMas && hayMovimientoEmpezado());
+
   if (document.hidden || pausado || $('app').classList.contains('oculto') ||
-      estado.enviando || (!miraNadaMas && !seEstaUsando())) {
+      estado.enviando || cargando || (!miraNadaMas && !seEstaUsando())) {
     setTimeout(cicloRefresco, 60000);
     return;
   }
   api({ accion: 'estado' })
-    .then(function (d) { pintarEstado(d); pausaRefresco = miraNadaMas ? 120000 : 180000; })
-    .catch(function () { pausaRefresco = Math.min(pausaRefresco * 2, 900000); })
+    .then(function (d) { pintarEstado(d); pausaRefresco = miraNadaMas ? 120000 : 600000; })
+    .catch(function () { pausaRefresco = Math.min(pausaRefresco * 2, 1800000); })
     .then(function () { setTimeout(cicloRefresco, pausaRefresco); });
 }
 setTimeout(cicloRefresco, 120000);
