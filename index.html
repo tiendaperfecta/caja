@@ -152,7 +152,7 @@
     <!-- Sirve para saber de un vistazo si un celular quedó con una versión
          vieja: si dos aparatos muestran versiones distintas, uno no actualizó. -->
     <div style="text-align:center;color:var(--gris);font-size:12px;margin-top:14px">
-      versión 4 · <span id="medidor">último pedido: —</span>
+      versión 5 · <span id="medidor">último pedido: —</span>
     </div>
   </div>
 </div>
@@ -196,7 +196,9 @@ function marcarTiempo(ms, fallo) {
   if (!e) return;
   e.textContent = fallo ? ('último pedido: falló a los ' + Math.round(ms / 1000) + ' s')
                         : ('último pedido: ' + (ms / 1000).toFixed(1) + ' s');
-  e.style.color = (fallo || ms > 8000) ? 'var(--rojo)' : 'var(--gris)';
+  // se pinta en rojo recién a los 20 s: Google tarda de 1 a 16 s por su cuenta,
+  // y marcar en rojo algo que es normal solo genera desconfianza en la app
+  e.style.color = (fallo || ms > 20000) ? 'var(--rojo)' : 'var(--gris)';
 }
 
 function api(cuerpo) {
@@ -210,7 +212,10 @@ function api(cuerpo) {
   //  - Consultas (estado / conteoRapido): 25 s. Son las que se repiten solas,
   //    así que tienen que fallar rápido para no apilarse cuando Google va mal.
   var escribe = (cuerpo.accion === 'agregar' || cuerpo.accion === 'anular');
-  var plazo = escribe ? 60000 : 25000;
+  // consultas: 45 s y no 25. Con 25 s, un pico de Google (llegan a 16 s, y el
+  // primer pedido después de un rato quieto arranca en frío) cortaba solo y la
+  // app mostraba un error cuando en realidad no había pasado nada.
+  var plazo = escribe ? 60000 : 45000;
   var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
   var corte = ctrl ? setTimeout(function () { ctrl.abort(); }, plazo) : null;
   var opciones = { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(cuerpo) };
@@ -517,7 +522,10 @@ $('confirmar').onclick = function () {
   // queda girando y da la sensación de colgado, y el usuario toca dos veces.
   var avisoLento = setTimeout(function () {
     b.innerHTML = '<span class="spin"></span> El servidor está lento, esperá…';
-  }, 6000);
+    // 15 s y no 6: guardar un movimiento tarda habitualmente entre 3 y 8
+    // segundos por culpa de Google, así que el cartel saltaba casi siempre y
+    // asustaba sin motivo. Ahora aparece solo cuando de verdad se colgó.
+  }, 15000);
   // el mismo id en los reintentos evita que se cargue la plata dos veces
   if (!estado.idPendiente) estado.idPendiente = nuevoId();
   api({ accion: 'agregar', tipo: estado.tipo, monto: monto, detalle: detalle, categoria: estado.categoria, idCliente: estado.idPendiente })
