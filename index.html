@@ -152,7 +152,7 @@
     <!-- Sirve para saber de un vistazo si un celular quedó con una versión
          vieja: si dos aparatos muestran versiones distintas, uno no actualizó. -->
     <div style="text-align:center;color:var(--gris);font-size:12px;margin-top:14px">
-      versión 5 · <span id="medidor">último pedido: —</span>
+      versión 6 · <span id="medidor">último pedido: —</span>
     </div>
   </div>
 </div>
@@ -658,9 +658,32 @@ var ACTIVO_MS = 60000;
 var RITMO_MS = 5000;
 var pausaConteo = RITMO_MS;
 
+/* CUÁNDO SE LE PREGUNTA A LA CONTADORA (pedido de Lucas, 18/9).
+   El resto del día la app no pregunta nada. La lectura se enciende de dos
+   maneras, y se apaga sola a los 3 minutos de la última:
+     - tocando el campo del detalle (aunque todavía no se haya escrito nada),
+     - o teniendo un detalle escrito, como venía siendo.
+   Tocar el campo alcanza porque el orden de trabajo es: se elige el fletero y
+   después se cuenta la plata. */
+var VENTANA_LECTURA_MS = 180000;   // 3 minutos, lo mismo que el servidor guarda el conteo
+var tocoElDetalle = 0;
+
 function hayMovimientoEmpezado() {
-  return !!detalleActual();
+  if (detalleActual()) return true;
+  return (Date.now() - tocoElDetalle) < VENTANA_LECTURA_MS;
 }
+
+/* al tocar el detalle se enciende la lectura y se pregunta UNA vez enseguida,
+   por si ya habían contado antes de tocar la pantalla */
+$('detalle').addEventListener('focus', function () {
+  tocoElDetalle = Date.now();
+  if (pausado || estado.enviando) return;
+  if (Date.now() - ultimaConsultaManual < 3000) return;
+  ultimaConsultaManual = Date.now();
+  api({ accion: 'conteoRapido' })
+    .then(function (d) { mostrarConteoGlory(d.conteo); })
+    .catch(function () {});
+});
 
 function seEstaUsando() { return (Date.now() - ultimoToque) < ACTIVO_MS; }
 
